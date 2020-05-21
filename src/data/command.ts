@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { Message, Collection } from 'discord.js'
 
-export type HandlerParameters = {args: string[], msg: Message}
+export type HandlerParameters = { args: string[]; msg: Message }
 
 export interface Command {
   readonly name: string
@@ -18,9 +18,11 @@ export async function loadCommands() {
   const files = await fs.readdir(cmdFolder)
   for (const file of files) {
     if (file.match(/.[tj]s$/)) {
-      const command: Command = new (await import(path.join('../..', cmdFolder, file))).default()
-      for (const cmd of [command.name, ...[command.alias].flat()]) {
-        if (!!cmd) commandList.set(cmd, command)
+      const commands = await import(path.join('../..', cmdFolder, file))
+      for (const command of Object.values(commands) as Command[]) {
+        if (!!command.name) {
+          commandList.set(command.name, command)
+        }
       }
     }
   }

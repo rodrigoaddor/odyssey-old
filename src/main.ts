@@ -1,5 +1,6 @@
 import { Client } from 'discord.js'
 import db from './db'
+import { CommandError, CommandErrorType } from './data/errors'
 
 import { loadCommands } from './data/command'
 import { loadEvents } from './data/event'
@@ -26,19 +27,31 @@ loadCommands().then((commandList) => {
         .split(' ')
         .filter((str) => str.length > 0)
       if (commandList.has(args[0])) {
-        commandList.get(args[0])?.handle({
-          args: args.slice(0),
-          msg: message,
-        })
+        commandList
+          .get(args[0])
+          ?.handle({
+            args: args.slice(0),
+            msg: message,
+          })
+          .catch((e) => {
+            if (e instanceof CommandError) {
+              const { message: msg, type } = e
+              message.reply(`${type}${!!msg ? ':' : '.'} ${!!msg ? msg : ''}`)
+            } else {
+              throw e
+            }
+          })
       }
     }
   })
+  console.log(`Loaded ${commandList.array().length} commands.`)
 })
 
 loadEvents().then((eventList) => {
-  eventList.forEach(({name, handle}) => {
+  eventList.forEach(({ name, handle }) => {
     client.on(name, handle)
   })
+  console.log(`Loaded ${eventList.array().length} events.`)
 })
 
 client.once('ready', () => {

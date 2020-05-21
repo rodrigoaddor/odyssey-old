@@ -1,10 +1,10 @@
 import db from '../db'
 import { Command, HandlerParameters } from '../data/command'
 
-export default class Prefix implements Command {
-  name = 'prefix'
+const Prefix: Command = {
+  name: 'prefix',
 
-  handle = async ({ msg, args }: HandlerParameters) => {
+  handle: async ({ msg, args }: HandlerParameters) => {
     const prefix: string = (await db.get(`${msg.guild!.id}-prefix`)) || process.env.PREFIX!
     if (args.length == 1) {
       if (!!prefix) {
@@ -27,5 +27,7 @@ export default class Prefix implements Command {
         msg.reply(`You don't have permission to do that.`)
       }
     }
-  }
+  },
 }
+
+export default Prefix

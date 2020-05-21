@@ -1,28 +1,29 @@
 import { Command, HandlerParameters } from '../data/command'
 import db from '../db'
+import { CommandError } from '../data/errors'
 
-export default class Room implements Command {
-  name = 'room'
+const Room: Command = {
+  name: 'room',
 
-  handle = async ({ msg, args }: HandlerParameters) => {
+  handle: async ({ msg, args }: HandlerParameters) => {
     const prefix = (await db.get(`${msg.guild!.id}-prefix`)) || {}
     const roomsCategory = (await db.get(`${msg.guild!.id}-rooms`)) || {}
-    if (args.length >= 1) {
+    if (args.length >= 2) {
       if (args[1] == 'name') {
         if (!!args[2]) {
           const channel = msg.member?.voice?.channel
           if (!!channel) {
             const owner = await db.get(`${channel.id}-owner`)
-            if (owner == msg.member?.id) {
+            if (owner == msg.member?.id || msg.member?.hasPermission('MANAGE_CHANNELS')) {
               channel.setName(args.slice(2).join(' '))
             } else {
               msg.reply(`You are not the owner of the voice channel you are in.`)
             }
           } else {
-            msg.reply(`You need to be in a voice channel to do this.`)
+            msg.reply(`You need to be in a voice channel to do that.`)
           }
         } else {
-          msg.reply(`Incorrect usage.`)
+          throw new CommandError()
         }
       } else if (args[1] == 'category') {
         if (!!args[2]) {
@@ -49,7 +50,9 @@ export default class Room implements Command {
         }
       }
     } else {
-      msg.reply(`Incorrect usage.`)
+      throw new CommandError()
     }
-  }
+  },
 }
+
+export default Room
