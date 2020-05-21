@@ -5,8 +5,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "start": "node -r dotenv/config out/main.js",
-    "start-ts": "ts-node -r dotenv/config src/main.ts",
-    "dev": "npx  nodemon"
+    "dev": "npx nodemon"
   },
   "author": "Rodrigo Addor <rodrigotladdor@gmail.com>",
   "license": "MIT",
