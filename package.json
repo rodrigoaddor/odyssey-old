@@ -2,9 +2,7 @@
   "name": "odyssey",
   "version": "0.0.0",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "start": "node -r dotenv/config out/main.js",
+    "start": "ts-node -r dotenv/config src/main.ts",
     "dev": "npx nodemon"
   },
   "author": "Rodrigo Addor <rodrigotladdor@gmail.com>",
