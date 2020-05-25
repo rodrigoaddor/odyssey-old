@@ -1,8 +1,6 @@
 import { Client } from 'discord.js'
-import db from './db'
-import { CommandError, CommandErrorType } from './data/errors'
 
-import { loadCommands } from './data/command'
+import { loadCommands, handler } from './data/command'
 import { loadEvents } from './data/event'
 
 const client = new Client({
@@ -13,36 +11,7 @@ const client = new Client({
 
 loadCommands().then((commandList) => {
   client.on('message', async (message) => {
-    const { content: msg, guild } = message
-    const prefix: string = (await db.get(`${guild?.id!}-prefix`)) || process.env.PREFIX
-    const [match, mention] = Array.from(msg.match(/^<@[!&]?(\d+)>/) || [])
-    if (
-      (!!prefix && msg.startsWith(prefix)) ||
-      mention == client.user?.id ||
-      mention == message.guild?.me?.roles.cache.find((role) => role.managed)?.id
-    ) {
-      const args = (
-        (prefix && msg.startsWith(prefix) ? msg.substr(prefix.length) : mention && msg.substr(match.length)) || msg
-      )
-        .split(' ')
-        .filter((str) => str.length > 0)
-      if (commandList.has(args[0])) {
-        commandList
-          .get(args[0])
-          ?.handle({
-            args: args.slice(0),
-            msg: message,
-          })
-          .catch((e) => {
-            if (e instanceof CommandError) {
-              const { message: msg, type } = e
-              message.reply(`${type}${!!msg ? ':' : '.'} ${!!msg ? msg : ''}`)
-            } else {
-              throw e
-            }
-          })
-      }
-    }
+    handler(message)
   })
   console.log(`Loaded ${commandList.array().length} commands.`)
 })
