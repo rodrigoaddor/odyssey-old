@@ -1,15 +1,15 @@
 import { CategoryChannel } from 'discord.js'
 import { Command, Argument } from '../data/command'
-import db from '../db'
+import db from '../utils/db'
 
 const name: Command = {
   arguments: [Argument.String],
   handle: async ({ args, message: msg }) => {
     const channel = msg.member?.voice?.channel
     if (!!channel) {
-      const owner = await db.get(`${channel.id}-owner`)
+      const owner = await db(channel.id).get('owner')
       if (owner == msg.member?.id || msg.member?.hasPermission('MANAGE_CHANNELS')) {
-        channel.setName(args.join(' '))
+        channel.setName(args.join(' ')) 
       } else {
         msg.reply(`You are not the owner of the voice channel you are in.`)
       }
@@ -25,10 +25,10 @@ const category: Command = {
   handle: async ({ args, message }) => {
     const channel = args[0] as CategoryChannel
     if (!!channel) {
-      db.set(`${message.guild!.id}-rooms`, channel.id)
+      db(message.guild!.id).set('rooms', channel.id)
       message.reply(`Set rooms category to <#${channel.id}>.`)
     } else {
-      const currentChannel = await db.get(`${message.guild!.id}-rooms`)
+      const currentChannel = await db(message.guild!.id).get('rooms')
       if (!!currentChannel) {
         message.reply(`Using category <#${currentChannel}> as rooms category.`)
       } else {

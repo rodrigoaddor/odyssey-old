@@ -1,5 +1,5 @@
 import { EventListener } from '../data/event'
-import db from '../db'
+import db from '../utils/db'
 
 const RoomJoinOrLeave: EventListener<'voiceStateUpdate'> = {
   name: 'voiceStateUpdate',
@@ -7,10 +7,10 @@ const RoomJoinOrLeave: EventListener<'voiceStateUpdate'> = {
     const { guild: oldGuild } = oldState
     if (!!newState.channel && newState.channelID != oldState.channelID) {
       const { member, channel, guild } = newState
-      const roomsCategory: string = await db.get(`${guild.id}-rooms`)
+      const roomsCategory: string = await db(guild.id).get('rooms')
 
       if (channel?.parentID == roomsCategory && channel.members.array().length == 1) {
-        db.set(`${channel.id}-owner`, member!.id)
+        db(channel.id).set('owner', member!.id)
         if (member?.presence && member.presence.activities.some((activity) => activity.type == 'PLAYING')) {
           await channel?.setName(member.presence.activities.find((activity) => activity.type == 'PLAYING')!.name)
         } else {
@@ -25,12 +25,12 @@ const RoomJoinOrLeave: EventListener<'voiceStateUpdate'> = {
       }
     }
 
-    if (oldState.channel?.parentID == (await db.get(`${oldGuild.id}-rooms`))) {
+    if (oldState.channel?.parentID == (await db(oldGuild.id).get('rooms'))) {
       const { member, channel, guild } = oldState
-      const roomsCategory: string = await db.get(`${guild.id}-rooms`)
+      const roomsCategory: string = await db(guild.id).get('rooms')
 
       if (channel?.parentID == roomsCategory && channel.members.array().length == 0) {
-        db.delete(`${channel.id}-owner`)
+        db(channel.id).delete('owner')
         if (channel.parent?.children.some((c) => c.members.array().length == 0 && c.id != channel.id)) {
           await channel.delete()
         } else {
@@ -49,7 +49,7 @@ const RoomPresence: EventListener<'presenceUpdate'> = {
   handle: async (oldPresence, newPresence) => {
     const { member, guild } = newPresence
     const channel = member?.voice.channel
-    const roomsCategory: string = await db.get(`${guild?.id}-rooms`)
+    const roomsCategory: string = await db(guild!.id).get('rooms')
 
     if (channel && channel.parentID == roomsCategory) {
       const oldActivity = !!oldPresence && oldPresence.activities.find((activity) => activity.type == 'PLAYING')

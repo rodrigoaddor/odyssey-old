@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { Message, Collection, PermissionResolvable } from 'discord.js'
-import db from '../db'
+import db from '../utils/db'
 import { CommandError } from './errors'
 
 const argsRegex = /[^\s"]+|(?<!\\)"([^"]*|.+\\".+)(?<!\\)"/g
@@ -39,7 +39,7 @@ export async function loadCommands() {
 }
 
 export async function handler(message: Message) {
-  const prefix: string = (await db.get(`${message.guild!.id}-prefix`)) ?? process.env.PREFIX
+  const prefix: string = (await db(message.guild!.id).get('prefix')) ?? process.env.PREFIX
   const botMention = `<@${message.client.user!.id}>`
 
   let msg
