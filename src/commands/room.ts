@@ -4,17 +4,17 @@ import db from '../utils/db'
 
 const name: Command = {
   arguments: [Argument.String],
-  handle: async ({ args, message: msg }) => {
+  handle: async ({ args, message: msg, send }) => {
     const channel = msg.member?.voice?.channel
     if (!!channel) {
       const owner = await db(channel.id).get('owner')
       if (owner == msg.member?.id || msg.member?.hasPermission('MANAGE_CHANNELS')) {
         channel.setName(args.join(' ')) 
       } else {
-        msg.reply(`You are not the owner of the voice channel you are in.`)
+        send(`You are not the owner of the voice channel you are in.`)
       }
     } else {
-      msg.reply(`You need to be in a voice channel to do that.`)
+      send(`You need to be in a voice channel to do that.`)
     }
   },
 }
@@ -22,17 +22,17 @@ const name: Command = {
 const category: Command = {
   arguments: [Argument.CategoryChannel],
   permission: 'MANAGE_CHANNELS',
-  handle: async ({ args, message }) => {
+  handle: async ({ args, message, send }) => {
     const channel = args[0] as CategoryChannel
     if (!!channel) {
       db(message.guild!.id).set('rooms', channel.id)
-      message.reply(`Set rooms category to <#${channel.id}>.`)
+      send(`Set rooms category to <#${channel.id}>.`)
     } else {
       const currentChannel = await db(message.guild!.id).get('rooms')
       if (!!currentChannel) {
-        message.reply(`Using category <#${currentChannel}> as rooms category.`)
+        send(`Using category <#${currentChannel}> as rooms category.`)
       } else {
-        message.reply(`No category defined.`)
+        send(`No category defined.`)
       }
     }
   },

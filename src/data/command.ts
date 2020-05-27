@@ -1,10 +1,12 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import { Message, Collection, PermissionResolvable } from 'discord.js'
+import { Message, Collection, PermissionResolvable, PartialMessage, MessageMentions } from 'discord.js'
 import db from '../utils/db'
 import { CommandError } from './errors'
 
 const argsRegex = /[^\s"]+|(?<!\\)"([^"]*|.+\\".+)(?<!\\)"/g
+
+const commandMessages = new Map<string, string>()
 
 export enum Argument {
   String,
@@ -19,7 +21,7 @@ export interface Command {
   readonly alias?: string | string[]
   readonly arguments?: Array<Argument>
   readonly permission?: PermissionResolvable | PermissionResolvable[]
-  readonly handle: (parameters: { args: any[]; message: Message }) => Promise<any>
+  readonly handle: (parameters: { args: any[]; message: Message; send: (msg: string) => void }) => Promise<any>
 }
 
 export const commandList = new Collection<String, { [key: string]: Command }>()
@@ -38,15 +40,17 @@ export async function loadCommands() {
   return commandList
 }
 
-export async function handler(message: Message) {
+export async function handler(message: Message | PartialMessage, oldMessage?: Message | PartialMessage) {
   const prefix: string = (await db(message.guild!.id).get('prefix')) ?? process.env.PREFIX
-  const botMention = `<@${message.client.user!.id}>`
+  const mentionMatch = MessageMentions.USERS_PATTERN.exec(message.content ?? '')
+
+  if (message.partial) return
 
   let msg
   if (message.content.startsWith(prefix)) {
     msg = message.content.substr(prefix.length)
-  } else if (message.content.startsWith(botMention)) {
-    msg = message.content.substr(botMention.length).trimStart()
+  } else if (mentionMatch && mentionMatch[1] == message.client.user?.id) {
+    msg = message.content.substr(mentionMatch[0].length).trimStart()
   } else {
     return
   }
@@ -110,6 +114,21 @@ export async function handler(message: Message) {
       }
     }
 
-    cmd.handle({ args, message })
+    const send = (msg: string) => {
+      if (oldMessage) {
+        const oldCommandID = commandMessages.get(oldMessage.id)
+        if (oldCommandID) {
+          const oldCommand = message.channel.messages.cache.get(oldCommandID)
+          if (oldCommand) {
+            return oldCommand.edit(msg)
+          }
+        }
+      }
+      message.channel.send(msg).then(cmdMessage => {
+        commandMessages.set(message.id, cmdMessage.id)
+      })
+    }
+
+    cmd.handle({ args, message, send })
   }
 }

@@ -10,9 +10,8 @@ const client = new Client({
 })
 
 loadCommands().then((commandList) => {
-  client.on('message', async (message) => {
-    handler(message)
-  })
+  client.on('message', handler)
+  client.on('messageUpdate', (oldMessage, newMessage) => handler(newMessage, oldMessage))
   console.log(`Loaded ${commandList.array().length} commands.`)
 })
 
