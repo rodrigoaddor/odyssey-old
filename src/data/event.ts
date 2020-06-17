@@ -18,7 +18,7 @@ const eventsFolder = process.env.EVENTSS_PATH || './src/events'
 export async function loadEvents() {
   const files = await fs.readdir(eventsFolder)
   for (const file of files) {
-    if (file.match(/.[tj]s$/)) {
+    if (file.match(/.[tj]s$/) && file.substr(0, 1) != '_') {
       const events = await import(path.join('../..', eventsFolder, file))
       for (const event of Object.values(events)) {
         if (isEventListener(event) && !!event.name) {

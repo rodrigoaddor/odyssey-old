@@ -1,12 +1,11 @@
 import { promises as fs } from 'fs'
-import path from 'path'
+import Path from 'path'
+
 import { Message, Collection, PermissionResolvable, PartialMessage, MessageMentions } from 'discord.js'
 import db from '../utils/db'
 import { CommandError } from './errors'
 
 const argsRegex = /[^\s"]+|(?<!\\)"([^"]*|.+\\".+)(?<!\\)"/g
-
-const commandMessages = new Map<string, string>()
 
 export enum Argument {
   String,
@@ -16,119 +15,151 @@ export enum Argument {
   CategoryChannel,
 }
 
-export interface Command {
-  // readonly name: string
-  readonly alias?: string | string[]
-  readonly arguments?: Array<Argument>
-  readonly permission?: PermissionResolvable | PermissionResolvable[]
-  readonly handle: (parameters: { args: any[]; message: Message; send: (msg: string) => void }) => Promise<any>
+export interface CommandRunner {
+  (parameters: { args: any[]; message: Message; send: (msg: string) => void }): Promise<any>
 }
 
-export const commandList = new Collection<String, { [key: string]: Command }>()
+export interface SubCommand {
+  arguments?: Array<Argument>
+  permission?: PermissionResolvable | PermissionResolvable[]
+  run: CommandRunner
+}
 
-const cmdFolder = process.env.COMMANDS_PATH || './src/commands'
+export interface Command extends Partial<SubCommand> {
+  name: string
+  subCommands?: { [key: string]: SubCommand }
+}
 
-export async function loadCommands() {
-  const files = await fs.readdir(cmdFolder)
-  for (const file of files) {
-    if (file.match(/.[tj]s$/)) {
-      const commands = await import(path.join('../..', cmdFolder, file))
-      commandList.set(file.split('.')[0], commands)
+const isCommand = (obj: any): obj is Command => !!obj.name && !!obj.run
+
+export class Commander {
+  commands = new Map<string, Command>()
+  messages = new Map<string, string>()
+
+  constructor() {}
+
+  addCommand = (command: Command) => {
+    if (!this.commands.has(command.name)) {
+      this.commands.set(command.name, command)
+    } else {
+      throw new Error(`Duplicated command: ${command.name}`)
     }
   }
 
-  return commandList
-}
-
-export async function handler(message: Message | PartialMessage, oldMessage?: Message | PartialMessage) {
-  const prefix: string = (await db(message.guild!.id).get('prefix')) ?? process.env.PREFIX
-  const mentionMatch = MessageMentions.USERS_PATTERN.exec(message.content ?? '')
-
-  if (message.partial) return
-
-  let msg
-  if (message.content.startsWith(prefix)) {
-    msg = message.content.substr(prefix.length)
-  } else if (mentionMatch && mentionMatch[1] == message.client.user?.id) {
-    msg = message.content.substr(mentionMatch[0].length).trimStart()
-  } else {
-    return
+  loadCommands = async (path: string) => {
+    const files = await fs.readdir(path)
+    await Promise.all(
+      files.map(async (file) => {
+        if (file.match(/.[tj]s$/) && file.substr(0, 1) != '_') {
+          try {
+            const { default: command } = await import(Path.resolve(Path.join(path, file)))
+            if (isCommand(command)) {
+              this.addCommand(command)
+            }
+          } catch (e) {
+            console.warn(`Failed loading command: ${file}`)
+          }
+        }
+      })
+    )
   }
 
-  let args: any[] = Array.from(msg.matchAll(argsRegex)).map((match) => match[1] ?? match[0])
+  handle = async (msg: Message, oldMsg?: Message) => {
+    if (msg.partial) return
 
-  const cmds = commandList.get(args[0])
-  if (!!cmds) {
-    let cmd: Command
-    if (!!cmds[args[1]]) {
-      cmd = cmds[args[1]]
-      args = args.slice(2)
-    } else if (!!cmds['default']) {
-      cmd = cmds['default']
-      args = args.slice(1)
+    const prefix: string = (await db(msg.guild!.id).get('prefix')) ?? process.env.PREFIX
+    const mentionMatch = MessageMentions.USERS_PATTERN.exec(msg.content ?? '')
+
+    let sMsg
+    if (msg.content.startsWith(prefix)) {
+      sMsg = msg.content.substr(prefix.length)
+    } else if (mentionMatch && mentionMatch[1] == msg.client.user?.id) {
+      sMsg = msg.content.substr(mentionMatch[0].length).trimStart()
     } else {
-      message.reply(`Invalid usage.`)
       return
     }
 
-    if (!!cmd.permission) {
-      const permissions = Array.isArray(cmd.permission) ? cmd.permission : [cmd.permission]
-      if (!permissions.every((permission) => message.member?.hasPermission(permission))) {
-        message.reply(`You don't have permission to use this command.`)
+    let args: any[] = Array.from(sMsg.matchAll(argsRegex)).map((match) => match[1] ?? match[0])
+
+    const command = this.commands.get(args[0])
+    if (!!command) {
+      let subCommand: SubCommand | undefined
+      if (!!command.subCommands?.[args[1]]) {
+        subCommand = command.subCommands[args[1]]
+        args = args.slice(2)
+      } else if (!!command.run) {
+        args = args.slice(1)
+      } else {
+        msg.reply(`Invalid usage.`)
         return
       }
-    }
 
-    if (!!cmd.arguments) {
-      try {
-        cmd.arguments.forEach((argument, index) => {
-          if (args[index] != undefined) {
-            switch (argument) {
-              case Argument.Number:
-                const number = parseFloat(args[index])
-                if (!isNaN(number)) {
-                  args[index] = number
-                } else {
-                  throw new CommandError()
-                }
-                break
-              case Argument.CategoryChannel:
-                const channel = message.guild?.channels.cache.find(
-                  (channel) => channel.type == 'category' && (channel.id == args[index] || channel.name == args[index])
-                )
-                if (!!channel) {
-                  args[index] = channel
-                } else {
-                  throw new CommandError(`No channel "${args[index]}" found.`)
-                }
-                break
+      let runner = subCommand?.run || (command.run as CommandRunner)
+
+      const permissions = [command.permission, subCommand?.permission]
+        .flat()
+        .filter((a) => !!a) as PermissionResolvable[]
+
+      if (permissions.some((permission) => !msg.member?.hasPermission(permission))) {
+        msg.reply(`You don't have permission to use this command.`)
+        return
+      }
+
+      if (!!command.arguments) {
+        try {
+          command.arguments.forEach((argument, index) => {
+            if (args[index] != undefined) {
+              switch (argument) {
+                case Argument.Number:
+                  const number = parseFloat(args[index])
+                  if (!isNaN(number)) {
+                    args[index] = number
+                  } else {
+                    throw new CommandError()
+                  }
+                  break
+                case Argument.CategoryChannel:
+                  const channel = msg.guild?.channels.cache.find(
+                    (channel) =>
+                      channel.type == 'category' && (channel.id == args[index] || channel.name == args[index])
+                  )
+                  console.log(channel)
+                  if (!!channel) {
+                    args[index] = channel
+                  } else {
+                    throw new CommandError(`No channel "${args[index]}" found.`)
+                  }
+                  break
+              }
+            }
+          })
+        } catch (e) {
+          if (e instanceof CommandError) {
+            msg.reply(e.message)
+          } else {
+            throw e
+          }
+        }
+      }
+
+      const send = (message: string) => {
+        if (!!oldMsg) {
+          const oldCommandID = this.messages.get(oldMsg.id)
+          if (!!oldCommandID) {
+            const oldCommand = msg.channel.messages.cache.get(oldCommandID)
+            if (oldCommand) {
+              oldCommand.edit(message)
+              return
             }
           }
+        }
+
+        msg.channel.send(message).then((cmdMessage) => {
+          this.messages.set(msg.id, cmdMessage.id)
         })
-      } catch (e) {
-        if (e instanceof CommandError) {
-          message.reply(e.message)
-        } else {
-          throw e
-        }
       }
-    }
 
-    const send = (msg: string) => {
-      if (oldMessage) {
-        const oldCommandID = commandMessages.get(oldMessage.id)
-        if (oldCommandID) {
-          const oldCommand = message.channel.messages.cache.get(oldCommandID)
-          if (oldCommand) {
-            return oldCommand.edit(msg)
-          }
-        }
-      }
-      message.channel.send(msg).then(cmdMessage => {
-        commandMessages.set(message.id, cmdMessage.id)
-      })
+      runner({ args, message: msg, send })
     }
-
-    cmd.handle({ args, message, send })
   }
 }
