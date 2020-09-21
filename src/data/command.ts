@@ -30,7 +30,7 @@ export interface Command extends Partial<SubCommand> {
   subCommands?: { [key: string]: SubCommand }
 }
 
-const isCommand = (obj: any): obj is Command => !!obj.name && !!obj.run
+const isCommand = (obj: any): obj is Command => !!obj.name// && !!obj.run
 
 export class Commander {
   commands = new Map<string, Command>()
@@ -149,6 +149,7 @@ export class Commander {
             const oldCommand = msg.channel.messages.cache.get(oldCommandID)
             if (oldCommand) {
               oldCommand.edit(message)
+              oldCommand.reactions.removeAll()
               return
             }
           }
