@@ -1,9 +1,10 @@
+import { Message, MessageMentions, PermissionResolvable } from 'discord.js'
 import { promises as fs } from 'fs'
 import Path from 'path'
-
-import { Message, Collection, PermissionResolvable, PartialMessage, MessageMentions } from 'discord.js'
 import db from '../utils/db'
+import { SingleOrMany } from '../utils/utils'
 import { CommandError } from './errors'
+
 
 const argsRegex = /[^\s"]+|(?<!\\)"([^"]*|.+\\".+)(?<!\\)"/g
 
@@ -13,34 +14,48 @@ export enum Argument {
   TextChannel,
   VoiceChannel,
   CategoryChannel,
+  Member,
 }
 
-export interface CommandRunner {
-  (parameters: { args: any[]; message: Message; send: (msg: string) => void }): Promise<any>
-}
+export type RunnerParameters = { args: any[], message: Message, send: (msg: string) => void }
 
-export interface SubCommand {
-  arguments?: Array<Argument>
-  permission?: PermissionResolvable | PermissionResolvable[]
-  run: CommandRunner
-}
+export abstract class Command {
+  abstract name: string
+  abstract description: string
 
-export interface Command extends Partial<SubCommand> {
-  name: string
-  subCommands?: { [key: string]: SubCommand }
-}
+  aliases: string[] = []
+  arguments: (Argument | Argument[])[]  = []
+  permissions: SingleOrMany<PermissionResolvable> = []
+  subcommands: Map<String, Command> = new Map()
 
-const isCommand = (obj: any): obj is Command => !!obj.name// && !!obj.run
+  abstract run?(parameters: RunnerParameters): any
+
+  addSubcommand(subcommand: Command) {
+    const names = [subcommand.name, ...subcommand.aliases]
+    for (const name of names) {
+      if (!this.subcommands.has(name)) {
+        this.subcommands.set(name, subcommand)
+      } else {
+        throw new Error(`Duplicated subcommand '${name}' for command '${this.name}'`)
+      }
+    }
+  }
+}
 
 export class Commander {
   commands = new Map<string, Command>()
   messages = new Map<string, string>()
 
-  constructor() {}
-
   addCommand = (command: Command) => {
-    if (!this.commands.has(command.name)) {
-      this.commands.set(command.name, command)
+    this.#addCommand(command.name, command)
+    for (const alias of command.aliases) {
+      this.#addCommand(alias, command)
+    }
+  }
+
+  #addCommand = (name: string, command: Command) => {
+    if (!this.commands.has(name)) {
+      this.commands.set(name, command)
     } else {
       throw new Error(`Duplicated command: ${command.name}`)
     }
@@ -53,11 +68,9 @@ export class Commander {
         if (file.match(/.[tj]s$/) && file.substr(0, 1) != '_') {
           try {
             const { default: command } = await import(Path.resolve(Path.join(path, file)))
-            if (isCommand(command)) {
-              this.addCommand(command)
-            }
+            this.addCommand(new command())
           } catch (e) {
-            console.warn(`Failed loading command: ${file}`)
+            console.warn(`Failed loading command: ${file}\n${e}`)
           }
         }
       })
@@ -67,8 +80,15 @@ export class Commander {
   handle = async (msg: Message, oldMsg?: Message) => {
     if (msg.partial) return
 
-    const prefix: string = (await db(msg.guild!.id).get('prefix')) ?? process.env.PREFIX
-    const mentionMatch = MessageMentions.USERS_PATTERN.exec(msg.content ?? '')
+    // Removes bot reactions from edited messages, as they will be re-ran
+    if (!!oldMsg && msg.author.id != msg.client.user?.id) {
+      oldMsg.reactions.cache.forEach(reaction => {
+        reaction.users.remove(msg.client.user?.id)
+      })
+    }
+
+    const prefix: string = (msg.channel.type == 'text' && (await db(msg.guild!.id).get('prefix'))) ?? process.env.PREFIX
+    const mentionMatch = MessageMentions.USERS_PATTERN.exec(msg.content)
 
     let sMsg
     if (msg.content.startsWith(prefix)) {
@@ -81,32 +101,51 @@ export class Commander {
 
     let args: any[] = Array.from(sMsg.matchAll(argsRegex)).map((match) => match[1] ?? match[0])
 
-    const command = this.commands.get(args[0])
+    let command = this.commands.get(args[0])
+    let permissions: PermissionResolvable[] = []
+
+    const send = async (message: string): Promise<Message> => {
+      if (!!oldMsg) {
+        const oldCommandID = this.messages.get(oldMsg.id)
+        if (!!oldCommandID) {
+          const oldCommand = msg.channel.messages.cache.get(oldCommandID)
+          if (oldCommand) {
+            oldCommand.edit(message)
+            oldCommand.reactions.removeAll()
+            return oldCommand
+          }
+        }
+      }
+
+      const cmdMessage = await msg.channel.send(message)
+      this.messages.set(msg.id, cmdMessage.id)
+      return cmdMessage
+    }
+
     if (!!command) {
-      let subCommand: SubCommand | undefined
-      if (!!command.subCommands?.[args[1]]) {
-        subCommand = command.subCommands[args[1]]
-        args = args.slice(2)
-      } else if (!!command.run) {
+      try {
+        permissions.push(command.permissions)
         args = args.slice(1)
-      } else {
-        msg.reply(`Invalid usage.`)
-        return
-      }
+        while (command?.subcommands.size != 0) {
+          if (command.subcommands.has(args[0])) {
+            command = command.subcommands.get(args[0])!
+            args = args.slice(1)
+          } else if (!command.run) {
+            throw new CommandError('Invalid usage!')
+          } else {
 
-      let runner = subCommand?.run || (command.run as CommandRunner)
+            break
+          }
+        }
 
-      const permissions = [command.permission, subCommand?.permission]
-        .flat()
-        .filter((a) => !!a) as PermissionResolvable[]
+        permissions = permissions.flat(Infinity)
 
-      if (permissions.some((permission) => !msg.member?.hasPermission(permission))) {
-        msg.reply(`You don't have permission to use this command.`)
-        return
-      }
+        if (permissions.some((permission) => !msg.member?.hasPermission(permission))) {
+          send(`${msg.member}, You don't have permission to use this command.`)
+          return
+        }
 
-      if (!!command.arguments) {
-        try {
+        if (!!command.arguments) {
           command.arguments.forEach((argument, index) => {
             if (args[index] != undefined) {
               switch (argument) {
@@ -123,44 +162,36 @@ export class Commander {
                     (channel) =>
                       channel.type == 'category' && (channel.id == args[index] || channel.name == args[index])
                   )
-                  console.log(channel)
                   if (!!channel) {
                     args[index] = channel
                   } else {
                     throw new CommandError(`No channel "${args[index]}" found.`)
                   }
                   break
+                case Argument.Member:
+                  const member = msg.guild?.members.cache.find(member => member.displayName.includes(args[index]))
+                  if (!!member) {
+                    args[index] = member
+                  } else {
+                    throw new CommandError(`No member "${args[index]}" found.`)
+                  }
+                  break
               }
             }
           })
-        } catch (e) {
-          if (e instanceof CommandError) {
-            msg.reply(e.message)
-          } else {
-            throw e
-          }
-        }
-      }
-
-      const send = (message: string) => {
-        if (!!oldMsg) {
-          const oldCommandID = this.messages.get(oldMsg.id)
-          if (!!oldCommandID) {
-            const oldCommand = msg.channel.messages.cache.get(oldCommandID)
-            if (oldCommand) {
-              oldCommand.edit(message)
-              oldCommand.reactions.removeAll()
-              return
-            }
-          }
         }
 
-        msg.channel.send(message).then((cmdMessage) => {
-          this.messages.set(msg.id, cmdMessage.id)
-        })
-      }
+        command.run!({ args, message: msg, send })
 
-      runner({ args, message: msg, send })
+      } catch (e) {
+        if (e instanceof CommandError) {
+          const message = await send(`${msg.member}, ${e.message}`)
+          setTimeout(() => message.delete(), 10000)
+          return
+        } else {
+          throw e
+        }
+      }
     }
   }
 }

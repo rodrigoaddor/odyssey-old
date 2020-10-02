@@ -3,5 +3,5 @@
     "watch": ["src"],
     "exec": "node --inspect -r ts-node/register -r dotenv/config src/main.ts",
     "ext": "ts",
-    "delay": "2500"
+    "delay": "3000"
   }
