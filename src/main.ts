@@ -18,10 +18,10 @@ commander.loadCommands(process.env.COMMANDS_PATH ?? './src/commands').then(() =>
 })
 
 loadEvents().then((eventList) => {
-  eventList.forEach(({ name, handle }) => {
-    client.on(name, handle)
+  eventList.forEach(({event, handle}) => {
+    client.on(event, handle)
   })
-  console.log(`Loaded ${eventList.array().length} events.`)
+  console.log(`Loaded ${eventList.length} events.`)
 })
 
 client.once('ready', () => {

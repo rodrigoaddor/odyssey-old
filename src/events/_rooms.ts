@@ -2,7 +2,7 @@ import { EventListener } from '../data/event'
 import db from '../utils/db'
 
 const RoomJoinOrLeave: EventListener<'voiceStateUpdate'> = {
-  name: 'voiceStateUpdate',
+  event: 'voiceStateUpdate',
   handle: async (oldState, newState) => {
     const { guild: oldGuild } = oldState
     if (!!newState.channel && newState.channelID != oldState.channelID) {
@@ -45,7 +45,7 @@ const RoomJoinOrLeave: EventListener<'voiceStateUpdate'> = {
 }
 
 const RoomPresence: EventListener<'presenceUpdate'> = {
-  name: 'presenceUpdate',
+  event: 'presenceUpdate',
   handle: async (oldPresence, newPresence) => {
     const { member, guild } = newPresence
     const channel = member?.voice.channel

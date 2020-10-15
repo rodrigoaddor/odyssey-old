@@ -1,4 +1,4 @@
-import { Guild, GuildEmoji, PermissionResolvable, TextChannel, User } from 'discord.js'
+import { PermissionResolvable, TextChannel, User } from 'discord.js'
 import { AmongUsData, AmongUsStage, Colors, ColorToEmoji, isColor } from '../data/among_us'
 import { Argument, Command, RunnerParameters } from '../data/command'
 import { CommandError } from '../data/errors'

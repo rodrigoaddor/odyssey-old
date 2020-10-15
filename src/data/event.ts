@@ -2,16 +2,16 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { Collection, ClientEvents } from 'discord.js'
 
-export interface EventListener<K extends string & keyof ClientEvents> {
-  readonly name: K
+export interface EventListener<K extends keyof ClientEvents> {
+  readonly event: K
   readonly handle: (...args: ClientEvents[K]) => void
 }
 
 function isEventListener(obj: any): obj is EventListener<any> {
-  return !!obj?.name && !!obj?.handle
+  return !!obj?.event && !!obj?.handle
 }
 
-export const eventList = new Collection<String, EventListener<any>>()
+export const eventList: EventListener<keyof ClientEvents>[] = []
 
 const eventsFolder = process.env.EVENTSS_PATH || './src/events'
 
@@ -21,8 +21,8 @@ export async function loadEvents() {
     if (file.match(/.[tj]s$/) && file.substr(0, 1) != '_') {
       const events = await import(path.join('../..', eventsFolder, file))
       for (const event of Object.values(events)) {
-        if (isEventListener(event) && !!event.name) {
-          eventList.set(event.name, event)
+        if (isEventListener(event) && !!event.event) {
+          eventList.push(event)
         }
       }
     }
